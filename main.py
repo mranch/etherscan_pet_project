@@ -24,31 +24,47 @@ def convert_amount(amount):
     return decimal_amount
 
 
+def parse_block(block_number):
+    block_reward_data = etherscan_client.get_block_reward_by_block_number(block_number)
+    block_reward = block_reward_data["blockReward"]
+    return {
+        "block_reward": block_reward
+    }
+
+
+def parse_transaction(transaction):
+    transaction_hash = transaction["hash"]
+    transaction_date = datetime.utcfromtimestamp(int(transaction["timeStamp"])).strftime("%d.%m.%y")
+    income_amount = convert_amount(transaction["value"])
+
+    block_number = transaction["blockNumber"]
+    parse_block_result = parse_block(block_number)
+    block_reward = parse_block_result["block_reward"]
+
+    return {
+        "_id": transaction_hash,
+        "Date": transaction_date,
+        "Block Reward": convert_amount(block_reward),
+        "Account balance": convert_amount(balance),
+        "Income Amount": income_amount,
+        "From": transaction["from"],
+        "To": transaction["to"],
+        "Gas Price": convert_amount(transaction["gasPrice"])
+    }
+
+
 etherscan_client = initialize_etherscan_client()
 mongo_client_cluster, mongo_client_database, mongo_client_collection = initialize_mongo_client()
+my_address = config.ADDRESS
 
-block_number_example = 14247618
-address_example = "0x99f806e72c6a192a25e440757bafe9c9169b0c71"
+balance = etherscan_client.get_eth_balance(my_address)
 
-my_transaction = etherscan_client.get_normal_txs_by_address(
-    address=address_example,
-    startblock=block_number_example,
-    endblock=block_number_example,
+my_transactions = etherscan_client.get_normal_txs_by_address(
+    address=my_address,
+    startblock=0,
+    endblock=99999999,
     sort="asc"
-)[0]
+)
 
-my_transaction_date = datetime.utcfromtimestamp(int(my_transaction["timeStamp"])).strftime("%d.%m.%y")
-
-block_reward_data = etherscan_client.get_block_reward_by_block_number(14247618)
-
-block_reward = block_reward_data["blockReward"]
-
-balance_data = etherscan_client.get_eth_balance(address_example)
-
-document_post = {
-    "Date": my_transaction_date,
-    "Block Reward": convert_amount(block_reward),
-    "Account balance": convert_amount(balance_data)
-}
-
-mongo_client_collection.insert_one(document_post)
+parse_transaction_results = [parse_transaction(transaction) for transaction in my_transactions]
+mongo_client_collection.insert_many(parse_transaction_results)
