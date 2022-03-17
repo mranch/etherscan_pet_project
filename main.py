@@ -25,7 +25,7 @@ def convert_amount(amount):
     return decimal_amount
 
 
-def parse_block(block_number):
+def parse_block(etherscan_client, block_number):
     block_reward_data = etherscan_client.get_block_reward_by_block_number(block_number)
     block_reward = block_reward_data["blockReward"]
     return {
@@ -33,13 +33,13 @@ def parse_block(block_number):
     }
 
 
-def parse_transaction(transaction, balance):
+def parse_transaction(etherscan_client, transaction, balance):
     transaction_hash = transaction["hash"]
     transaction_date = datetime.utcfromtimestamp(int(transaction["timeStamp"])).strftime("%d.%m.%y")
     income_amount = convert_amount(transaction["value"])
 
     block_number = transaction["blockNumber"]
-    parse_block_result = parse_block(block_number)
+    parse_block_result = parse_block(etherscan_client, block_number)
     block_reward = parse_block_result["block_reward"]
 
     return {
@@ -67,8 +67,17 @@ def process_transactions(mongo_client_collection):
         sort="asc"
     )
 
-    parse_transaction_results = [parse_transaction(transaction, balance) for transaction in my_transactions]
-    mongo_client_collection.insert_many(parse_transaction_results)
+    for transaction in my_transactions:
+        parse_transaction_result = parse_transaction(etherscan_client, transaction, balance)
+        mongo_client_collection.update_one(
+            {
+                "_id": parse_transaction_result["_id"]
+            },
+            {
+                "$set": parse_transaction_result
+            },
+            upsert=True
+        )
 
 
 def display_data(mongo_client_collection, open_in_browser=False):
@@ -130,10 +139,9 @@ def display_data(mongo_client_collection, open_in_browser=False):
         webbrowser.open(filename)
 
 
-def main(insert_transactions=False):
+def main():
     mongo_client_cluster, mongo_client_database, mongo_client_collection = initialize_mongo_client()
-    if insert_transactions:
-        process_transactions(mongo_client_collection)
+    process_transactions(mongo_client_collection)
     display_data(mongo_client_collection, open_in_browser=True)
 
 
